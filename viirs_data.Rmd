@@ -74,6 +74,6 @@ ggplot()+
 #remove some extra fields and save
 viirs_2022_esr%>%
   dplyr::select(-c(altitude, time, lonc, latc, chlor_a))%>%
-  saveRDS("Data/virrs2022.RDS")
+  saveRDS("Data/viirs2022.RDS")
 
 ```
