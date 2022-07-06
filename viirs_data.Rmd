@@ -1,0 +1,79 @@
+---
+title: "download-viirs"
+author: "Matt Callahan"
+date: "7/1/2022"
+output: html_document
+---
+
+## VIIRS download 
+I will download annual viirs 8-day files for alaskan waters so I can get started on this shiny app while we're working on getting a viirs pipeline going in AKFIN.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(tidync)
+library(sf)
+library(AKmarineareas)
+
+#download 2022
+
+#east of dateline
+download.file(url = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisVHNSQchlaWeekly.nc?chlor_a%5B(2022-01-01T12:00:00Z):1:(2022-05-28T12:00:00Z)%5D%5B(0.0):1:(0.0)%5D%5B(46):1:(69)%5D%5B(-179.98125):1:(-129)%5D", method = "libcurl", mode="wb",destfile = "Data/viirs_2022_E.nc")
+
+#west of dateline
+download.file(url = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisVHNSQchlaWeekly.nc?chlor_a%5B(2022-01-01T12:00:00Z):1:(2022-05-28T12:00:00Z)%5D%5B(0.0):1:(0.0)%5D%5B(69):1:(46)%5D%5B(167):1:(179.98125)%5D", method = "libcurl", mode="wb",destfile = "Data/viirs_2022_W.nc")
+
+#chla function
+tidy_chl<-function(file) {
+  tidync(file) %>% 
+  hyper_tibble() %>% 
+  mutate(date=as_datetime(time),
+         year=year(date),
+         month=month(date),
+         lon_360=ifelse(longitude>0, longitude, longitude+360),
+         lonc=as.numeric(ifelse(longitude<0, #ifelse statement keeps +- lons the same length
+                                substr(longitude,1,8),
+                                substr(longitude,1,7))), 
+         latc=as.numeric(substr(latitude,1,6)), 
+         chlorophyll=round(chlor_a,3))
+}
+
+#east
+  viirs_2022_E<-tidy_chl("Data/viirs_2022_E.nc") 
+  #west
+  viirs_2022_W<-tidy_chl("Data/viirs_2022_W.nc") 
+   
+   #combine
+   viirs_2022<-viirs_2022_E%>% bind_rows(viirs_2022_W)
+   rm(viirs_2022_E); rm(viirs_2022_W)
+
+```
+
+## Assign Ecological regions
+Since I already made a viirs lookup table this should be a simple left join...
+```{r}
+#import lookup table. 
+#Code on sharefile Personal folders>projects>chlorophyll... 
+#maybe I'll eventually move it to a github repo.
+lkp<-read.csv("Data/viirs_chl_spatial_lookup.csv")%>%
+  dplyr::select(-c(X, latitude, longitude))
+
+#
+viirs_2022_esr<-inner_join(viirs_2022, lkp, by=c("lonc"="lonc", "latc"="latc"))
+#plot to check
+ak<-AK_basemap()
+ggplot()+
+  geom_point(data=viirs_2022, aes(x=lon_360, y=latitude))+
+  geom_point(data=viirs_2022_esr, aes(x=lon_360, y=latitude, color=Ecosystem_Subarea))+
+  geom_sf(data=ak%>%st_shift_longitude())
+```
+
+## Save
+
+```{r}
+#remove some extra fields and save
+viirs_2022_esr%>%
+  dplyr::select(-c(altitude, time, lonc, latc, chlor_a))%>%
+  saveRDS("Data/virrs2022.RDS")
+
+```
