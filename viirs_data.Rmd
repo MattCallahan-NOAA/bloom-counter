@@ -77,3 +77,167 @@ viirs_2022_esr%>%
   saveRDS("Data/viirs2022.RDS")
 
 ```
+
+## Download past years
+Past years are needed to put current conditions into context.
+
+```{r}
+#download the rest of the years
+options(timeout=6000)
+myyear <- 2013:2021
+#east of dateline
+for(i in myyear){
+  file_name <- paste0("Data/viirs_",i,"_e.nc")
+  download.file(url = paste0("https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisVHNSQchlaWeekly.nc?chlor_a%5B(",
+                             i,"-02-01T00:00:00Z):(", i,"-5-28T12:00:00Z)%5D%5B(0.0):1:(0.0)%5D%5B(46):1:(69)%5D%5B(-179.98125):1:(-129)%5D"),
+                method = "libcurl", mode="wb",destfile = file_name)
+}
+
+#west of dateline
+for(i in myyear){
+  file_name <- paste0("Data/viirs_",i,"_w.nc")
+  download.file(url = paste0("https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisVHNSQchlaWeekly.nc?chlor_a%5B(",
+                             i,"-02-01T00:00:00Z):(", i,"-5-28T12:00:00Z)%5D%5B(0.0):1:(0.0)%5D%5B(46):1:(69)%5D%5B(167):1:(179.98125)%5D"),
+                method = "libcurl", mode="wb",destfile = file_name)
+}
+
+```
+
+Load data
+```{r}
+
+#create blank list
+datalist = list()
+#bring in all files with for loop
+for (i in myyear){
+  dat <- tidy_chl(paste0("Data/viirs_",i,"_e.nc"))
+    datalist[[i]] <- dat 
+}
+
+#convert list to data frame
+viirs_e <- dplyr::bind_rows(datalist)
+
+#create blank list
+datalist = list()
+#bring in all files with for loop
+for (i in myyear){
+  dat <- tidy_chl(paste0("Data/viirs_",i,"_w.nc"))
+    datalist[[i]] <- dat 
+}
+
+#convert list to data frame
+viirs_w <- dplyr::bind_rows(datalist)
+
+rm(dat);rm(datalist)  
+   #combine
+   viirs<-viirs_e%>% bind_rows(viirs_w)
+   rm(viirs_e); rm(viirs_w)
+
+```
+
+Join esr info
+
+```{r}
+
+#
+viirs_old_esr<-inner_join(viirs, lkp, by=c("lonc"="lonc", "latc"="latc"))
+#plot to check
+ak<-AK_basemap()
+ggplot()+
+  geom_point(data=viirs_old_esr, aes(x=lon_360, y=latitude))+
+  #geom_point(data=viirs_2022_esr, aes(x=lon_360, y=latitude, color=Ecosystem_Subarea))+
+  geom_sf(data=ak%>%st_shift_longitude())
+
+#remove viirs
+rm(viirs)
+```
+
+Save
+```{r}
+saveRDS(viirs_old_esr, "Data/viirs_old_esr.RDS")
+
+```
+
+## Calculate averages
+Below I filter by depth, distance from shore, and calculate averages and sds. This way I won't have to do this in the app.
+
+```{r}
+viirs_old_esr<-readRDS("Data/viirs_old_esr.RDS")
+#Aleutians filters (no depth)
+viirs_ai<-viirs_old_esr%>%filter(Ecosystem_Area=="Aleutian Islands" & WATERS_COD=="FED")
+#BSGOA filters (includes depth)
+viirs_bsgoa<-viirs_old_esr%>%filter(Ecosystem_Area=="Eastern Bering Sea" |  Ecosystem_Area=="Gulf of Alaska")%>%
+  filter(depth < -10 & depth> -200 & WATERS_COD=="FED")
+
+#combine
+viirs_old_esr<-viirs_ai%>%bind_rows(viirs_bsgoa)
+#remove old ones
+rm(viirs_ai);rm(viirs_bsgoa)
+
+#test if dates are consistent year to year 
+unique(viirs_old_esr$date)#looks like it!
+
+#looks like I downloaded early january for the western AI...
+viirs_old_esr<-viirs_old_esr%>%filter(yday(date)>28)%>%
+  mutate(doy=yday(date))
+
+#check yday
+unique(viirs_old_esr$doy)#looks like it!
+#all good until 72 and 147...
+unique((viirs_old_esr%>%filter(doy==72))$year)
+unique((viirs_old_esr%>%filter(doy==147))$year)
+
+#what if I do it by week
+viirs_old_esr<-viirs_old_esr%>%
+  mutate(week=week(date))
+  
+  table(viirs_old_esr$doy, viirs_old_esr$year)
+    table(viirs_old_esr$doy, viirs_old_esr$week)
+    
+    #it looks like in 2018 data is from day 72 rather than 71,
+    #and in 2021 data is from day 147 instead of 141 (and then again for day 148 for the next week!)
+    #I am going to plot weekly averages.
+    #First I will create a weekly average by year, then average those averages.
+
+#averages
+viirs_old_avg<-viirs_old_esr%>%group_by(Ecosystem_Subarea, year, week)%>%
+  summarise(chla=mean(chlorophyll, na.rm=T))%>%
+  group_by(Ecosystem_Subarea, week)%>%
+  summarise(chlorophyll=mean(chla, na.rm=T),
+            stdev=sd(chla, na.rm=T))
+
+#save
+viirs_old_avg%>%saveRDS("Data/viirs_old_av.RDS")
+```
+
+Now I should do the same calcs with 2022
+
+```{r}
+viirs_2022<-readRDS("Data/viirs2022.RDS")
+#Aleutians filters (no depth)
+viirs_ai<-viirs_2022%>%filter(Ecosystem_Area=="Aleutian Islands" & WATERS_COD=="FED")
+#BSGOA filters (includes depth)
+viirs_bsgoa<-viirs_2022%>%filter(Ecosystem_Area=="Eastern Bering Sea" |  Ecosystem_Area=="Gulf of Alaska")%>%
+  filter(depth < -10 & depth> -200 & WATERS_COD=="FED")
+
+#combine
+viirs_2022<-viirs_ai%>%bind_rows(viirs_bsgoa)
+#remove old ones
+rm(viirs_ai);rm(viirs_bsgoa)
+
+#test if dates are consistent year to year 
+unique(viirs_2022$date)#looks like it!
+
+#looks like I downloaded early january for the western AI...
+viirs_2022<-viirs_2022%>%filter(yday(date)>28)%>%
+  mutate(week=week(date))
+
+#averages
+viirs_2022_avg<-viirs_2022%>%
+  group_by(Ecosystem_Subarea, week)%>%
+  summarise(chlorophyll=mean(chlorophyll, na.rm=T),
+            n=n())
+
+#save
+viirs_2022_avg%>%saveRDS("Data/viirs_2022_avg.RDS")
+```
