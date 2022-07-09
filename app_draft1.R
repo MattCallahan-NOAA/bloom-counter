@@ -3,22 +3,26 @@ library(shiny)
 library(tidyverse)
 library(lubridate)
 
+#define ecosystem subregions
+subregions<-c("Southeastern Bering Sea", 
+  "Northern Bering Sea", 
+  "Western Gulf of Alaska", 
+  "Eastern Gulf of Alaska",
+  "Western Aleutians",
+  "Central Aleutians",
+  "Eastern Aleutians")
+
 #df with links for each region
 link_df<-readRDS("Data/links.RDS")
-
-#define ecosystem subregions
-#subregions<-link_df$region
-  
-subregions<-c("Eastern Gulf of Alaska", "Western Gulf of Alaska", "SEBS Shelf")
 
 #current year
 current_year<-year(Sys.Date())
 
 #load latest virrs
-viirs2022<-readRDS("Data/viirs_2022_bsgoa_avg.RDS")%>%
+viirs2022<-readRDS("Data/viirs_2022_avg.RDS")%>%
   mutate(date=as.Date(paste(current_year, week, 1, sep="-"), "%Y-%U-%u"))
 #load old viirs
-viirsold<-readRDS("Data/viirs_old_bsgoa_avg.RDS")%>%
+viirsold<-readRDS("Data/viirs_old_av.RDS")%>%
   mutate(date=as.Date(paste(current_year, week, 1, sep="-"), "%Y-%U-%u"))
 
 #define UI
@@ -38,8 +42,7 @@ ui <- fluidPage(
                              selected = "Southeastern Bering Sea"
                  ),
                  #map of esr regions
-                 img(src='esr_map_depth_filters.png', width="450", height="275"),
-                 img(src='bsierp_sebs_map.png', width="450", height="275")
+                 img(src='esr_map_depth_filters.png', width="450", height="275")
                ),
                mainPanel(
                  #description
@@ -67,7 +70,7 @@ server <- function(input, output) {
     req(input$region)
     
     
-    isolate((filter(link_df, region==input$region)$link))
+    isolate((filter(link_df, Ecosystem_Subarea==input$region)$link))
   })
   
   output$web <- renderUI({
@@ -77,16 +80,18 @@ server <- function(input, output) {
   
   #plot
   #filter data
- viirs_1<-reactive(viirs2022%>%filter(region==input$region))
- viirs_2<-reactive(viirsold%>%filter(region==input$region))
+ viirs_1<-reactive(viirs2022%>%filter(Ecosystem_Subarea==input$region))
+ viirs_2<-reactive(viirsold%>%filter(Ecosystem_Subarea==input$region))
  
  
  #plot
   output$chla_plot<-renderPlot({
    ggplot()+
-      geom_line(data=viirs_2(), aes(x=date, y=chlorophyll, group=year), size=1, color="gray")+
+      geom_line(data=viirs_2(), aes(x=date, y=chlorophyll), size=1, color="red")+
+      geom_line(data=viirs_2(), aes(x=date, y=chlorophyll-stdev), size=1, lty=2, color="red")+
+      geom_line(data=viirs_2(), aes(x=date, y=chlorophyll+stdev), size=1, lty=2, color="red")+
      geom_line(data=viirs_1(), aes(x=date, y=chlorophyll), size=2, color="light green")+
-      geom_text(data=viirs_1(), aes(x=date, y=chlorophyll, label=n))+
+     # geom_text(data=viirs_1(), aes(x=week, y=chlorophyll, label=n))+
       xlab("")+ylab("chlorophyll-a (mg/L)")+
       theme_bw()+
       theme(axis.text = element_text(size=12),

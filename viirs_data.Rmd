@@ -162,11 +162,17 @@ saveRDS(viirs_old_esr, "Data/viirs_old_esr.RDS")
 Below I filter by depth, distance from shore, and calculate averages and sds. This way I won't have to do this in the app.
 
 ```{r}
-viirs_old_esr<-readRDS("Data/viirs_old_esr.RDS")
+viirs_old<-readRDS("Data/viirs_old_esr.RDS")
+
+#Limit to after January 28 and define weekday
+viirs_old<-viirs_old%>%filter(yday(date)>28)%>%
+  mutate(week=week(date))
+
+#ESR regions
 #Aleutians filters (no depth)
-viirs_ai<-viirs_old_esr%>%filter(Ecosystem_Area=="Aleutian Islands" & WATERS_COD=="FED")
+viirs_ai<-viirs_old%>%filter(Ecosystem_Area=="Aleutian Islands" & WATERS_COD=="FED")
 #BSGOA filters (includes depth)
-viirs_bsgoa<-viirs_old_esr%>%filter(Ecosystem_Area=="Eastern Bering Sea" |  Ecosystem_Area=="Gulf of Alaska")%>%
+viirs_bsgoa<-viirs_old%>%filter(Ecosystem_Area=="Eastern Bering Sea" |  Ecosystem_Area=="Gulf of Alaska")%>%
   filter(depth < -10 & depth> -200 & WATERS_COD=="FED")
 
 #combine
@@ -174,56 +180,58 @@ viirs_old_esr<-viirs_ai%>%bind_rows(viirs_bsgoa)
 #remove old ones
 rm(viirs_ai);rm(viirs_bsgoa)
 
+
+####The following code snippets were used to determine whether to plot daily or weekly. 
 #test if dates are consistent year to year 
-unique(viirs_old_esr$date)#looks like it!
+#unique(viirs_old_esr$date)#looks like it!
 
 #looks like I downloaded early january for the western AI...
-viirs_old_esr<-viirs_old_esr%>%filter(yday(date)>28)%>%
-  mutate(doy=yday(date))
+#viirs_old_esr<-viirs_old_esr%>%filter(yday(date)>28)%>%
+#  mutate(doy=yday(date))
 
 #check yday
-unique(viirs_old_esr$doy)#looks like it!
+#unique(viirs_old_esr$doy)#looks like it!
 #all good until 72 and 147...
-unique((viirs_old_esr%>%filter(doy==72))$year)
-unique((viirs_old_esr%>%filter(doy==147))$year)
+#unique((viirs_old_esr%>%filter(doy==72))$year)
+#unique((viirs_old_esr%>%filter(doy==147))$year)
 
 #what if I do it by week
-viirs_old_esr<-viirs_old_esr%>%
-  mutate(week=week(date))
+#viirs_old_esr<-viirs_old_esr%>%
+#  mutate(week=week(date))
   
-  table(viirs_old_esr$doy, viirs_old_esr$year)
-    table(viirs_old_esr$doy, viirs_old_esr$week)
+#  table(viirs_old_esr$doy, viirs_old_esr$year)
+#    table(viirs_old_esr$doy, viirs_old_esr$week)
     
     #it looks like in 2018 data is from day 72 rather than 71,
     #and in 2021 data is from day 147 instead of 141 (and then again for day 148 for the next week!)
     #I am going to plot weekly averages.
     #First I will create a weekly average by year, then average those averages.
 
-#averages
-viirs_old_avg<-viirs_old_esr%>%group_by(Ecosystem_Subarea, year, week)%>%
-  summarise(chla=mean(chlorophyll, na.rm=T))%>%
-  group_by(Ecosystem_Subarea, week)%>%
-  summarise(chlorophyll=mean(chla, na.rm=T),
-            stdev=sd(chla, na.rm=T))
+#Average by ESR region
+#It looks like it is desirable to plot by year. 
+viirs_old_avg_esr<-viirs_old_esr%>%
+  mutate(region=Ecosystem_Subarea) %>% 
+  group_by(region, year, week)%>%
+  summarise(chlorophyll=mean(chlorophyll, na.rm=T)) #%>%
+  #group_by(Ecosystem_Subarea, week)%>%
+  #summarise(chlorophyll=mean(chla, na.rm=T),
+            #stdev=sd(chla, na.rm=T))
 
-#save
-viirs_old_avg%>%saveRDS("Data/viirs_old_av.RDS")
+#and add BSIERP regions
+viirs_old_bsierp<-viirs_old%>%filter(BSIERP_ID>0 & WATERS_COD=="FED")
+viirs_old_avg_bsierp<-viirs_old_bsierp%>%
+  mutate(region=BSIERP_Region_Name) %>% 
+  group_by(region, year, week)%>%
+  summarise(chlorophyll=mean(chlorophyll, na.rm=T))
+
+#combine and save
+viirs_old_avg_esr%>%bind_rows(viirs_old_avg_bsierp)%>%saveRDS("Data/viirs_old_avg.RDS")
 ```
 
 Now I should do the same calcs with 2022
 
 ```{r}
 viirs_2022<-readRDS("Data/viirs2022.RDS")
-#Aleutians filters (no depth)
-viirs_ai<-viirs_2022%>%filter(Ecosystem_Area=="Aleutian Islands" & WATERS_COD=="FED")
-#BSGOA filters (includes depth)
-viirs_bsgoa<-viirs_2022%>%filter(Ecosystem_Area=="Eastern Bering Sea" |  Ecosystem_Area=="Gulf of Alaska")%>%
-  filter(depth < -10 & depth> -200 & WATERS_COD=="FED")
-
-#combine
-viirs_2022<-viirs_ai%>%bind_rows(viirs_bsgoa)
-#remove old ones
-rm(viirs_ai);rm(viirs_bsgoa)
 
 #test if dates are consistent year to year 
 unique(viirs_2022$date)#looks like it!
@@ -232,12 +240,66 @@ unique(viirs_2022$date)#looks like it!
 viirs_2022<-viirs_2022%>%filter(yday(date)>28)%>%
   mutate(week=week(date))
 
+#ESR regions
+#Aleutians filters (no depth)
+viirs_ai<-viirs_2022%>%filter(Ecosystem_Area=="Aleutian Islands" & WATERS_COD=="FED")
+#BSGOA filters (includes depth)
+viirs_bsgoa<-viirs_2022%>%filter(Ecosystem_Area=="Eastern Bering Sea" |  Ecosystem_Area=="Gulf of Alaska")%>%
+  filter(depth < -10 & depth> -200 & WATERS_COD=="FED")
+
+#combine
+viirs_2022_esr<-viirs_ai%>%bind_rows(viirs_bsgoa)
+#remove old ones
+rm(viirs_ai);rm(viirs_bsgoa)
+
 #averages
-viirs_2022_avg<-viirs_2022%>%
-  group_by(Ecosystem_Subarea, week)%>%
+viirs_2022_avg_esr<-viirs_2022_esr%>%
+  mutate(region=Ecosystem_Subarea)%>%
+  group_by(region, week)%>%
   summarise(chlorophyll=mean(chlorophyll, na.rm=T),
             n=n())
 
-#save
-viirs_2022_avg%>%saveRDS("Data/viirs_2022_avg.RDS")
+#BSIERP regions
+#and add BSIERP regions
+viirs_2022_bsierp<-viirs_2022%>%filter(BSIERP_ID>0 & WATERS_COD=="FED")
+viirs_2022_avg_bsierp<-viirs_2022_bsierp%>%
+  mutate(region=BSIERP_Region_Name)%>%
+  group_by(region, year, week)%>%
+  summarise(chlorophyll=mean(chlorophyll, na.rm=T),
+            n=n())
+#Combine and save
+viirs_2022_avg_esr%>%bind_rows(viirs_2022_avg_bsierp)%>%saveRDS("Data/viirs_2022_avg.RDS")
 ```
+
+New metrics will be the Southeastern Bering Sea shelf, EGOA, and WGOA
+```{r}
+#old
+#2022 GOA
+viirs_old_avg_goa<-viirs_old_avg_esr%>%
+  filter(region %in% c("Eastern Gulf of Alaska", "Western Gulf of Alaska"))
+#BS
+viirs_old_avg_bs<-viirs_old_esr%>%
+  filter(BSIERP_ID %in% c(1,3,5,6) & WATERS_COD=="FED")%>%
+  mutate(region="SEBS Shelf")%>%
+  group_by(region, year, week)%>%
+  summarise(chlorophyll=mean(chlorophyll, na.rm=T),
+            n=n())
+
+#combine and save
+viirs_old_avg_goa%>%bind_rows(viirs_old_avg_bs)%>%saveRDS("Data/viirs_old_bsgoa_avg.RDS")
+
+#2022 GOA
+viirs_2022_avg_goa<-viirs_2022_avg_esr%>%
+  filter(region %in% c("Eastern Gulf of Alaska", "Western Gulf of Alaska"))
+#BS
+viirs_2022_avg_bs<-viirs_2022_esr%>%
+  filter(BSIERP_ID %in% c(1,3,5,6) & WATERS_COD=="FED")%>%
+  mutate(region="SEBS Shelf")%>%
+  group_by(region, week)%>%
+  summarise(chlorophyll=mean(chlorophyll, na.rm=T),
+            n=n())
+
+#combine and save
+viirs_2022_avg_goa%>%bind_rows(viirs_2022_avg_bs)%>%saveRDS("Data/viirs_2022_bsgoa_avg.RDS")
+```
+
